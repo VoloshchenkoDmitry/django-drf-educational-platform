@@ -1,5 +1,4 @@
 from django.db import models
-from users.models import User
 
 
 class Course(models.Model):
@@ -7,7 +6,7 @@ class Course(models.Model):
     preview = models.ImageField(upload_to='courses/previews/', blank=True, null=True, verbose_name='Превью')
     description = models.TextField(blank=True, null=True, verbose_name='Описание')
     owner = models.ForeignKey(
-        User,
+        'users.User',
         on_delete=models.SET_NULL,
         blank=True,
         null=True,
@@ -35,7 +34,7 @@ class Lesson(models.Model):
         verbose_name='Курс'
     )
     owner = models.ForeignKey(
-        User,
+        'users.User',
         on_delete=models.SET_NULL,
         blank=True,
         null=True,

@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import Group, Permission
 from django.contrib.contenttypes.models import ContentType
-from materials.models import Course, Lesson
+from django.apps import apps
 
 
 class Command(BaseCommand):
@@ -15,6 +15,10 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS('Moderators group created'))
         else:
             self.stdout.write(self.style.WARNING('Moderators group already exists'))
+
+        # Получаем модели через apps чтобы избежать импортов
+        Course = apps.get_model('materials', 'Course')
+        Lesson = apps.get_model('materials', 'Lesson')
 
         # Получаем разрешения для моделей Course и Lesson
         course_content_type = ContentType.objects.get_for_model(Course)

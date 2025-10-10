@@ -1,7 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from .models import User, Payment
-from materials.models import Course, Lesson
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):

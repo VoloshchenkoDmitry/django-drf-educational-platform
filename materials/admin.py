@@ -9,13 +9,14 @@ class LessonInline(admin.TabularInline):
 
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ('title',)
+    list_display = ('title', 'owner')
     search_fields = ('title',)
+    list_filter = ('owner',)
     inlines = [LessonInline]
 
 
 @admin.register(Lesson)
 class LessonAdmin(admin.ModelAdmin):
-    list_display = ('title', 'course')
-    list_filter = ('course',)
+    list_display = ('title', 'course', 'owner')
+    list_filter = ('course', 'owner')
     search_fields = ('title', 'description')
