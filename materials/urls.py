@@ -3,7 +3,8 @@ from .views import (
     LessonListCreateAPIView,
     LessonRetrieveAPIView,
     LessonUpdateAPIView,
-    LessonDestroyAPIView
+    LessonDestroyAPIView,
+    SubscriptionAPIView
 )
 
 urlpatterns = [
@@ -11,4 +12,5 @@ urlpatterns = [
     path('<int:pk>/', LessonRetrieveAPIView.as_view(), name='lesson-retrieve'),
     path('<int:pk>/update/', LessonUpdateAPIView.as_view(), name='lesson-update'),
     path('<int:pk>/delete/', LessonDestroyAPIView.as_view(), name='lesson-delete'),
+    path('subscription/', SubscriptionAPIView.as_view(), name='subscription'),
 ]
