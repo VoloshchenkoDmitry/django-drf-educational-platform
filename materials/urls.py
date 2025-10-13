@@ -6,6 +6,8 @@ from .views import (
     LessonDestroyAPIView
 )
 
+app_name = 'materials'
+
 urlpatterns = [
     path('', LessonListCreateAPIView.as_view(), name='lesson-list-create'),
     path('<int:pk>/', LessonRetrieveAPIView.as_view(), name='lesson-retrieve'),
