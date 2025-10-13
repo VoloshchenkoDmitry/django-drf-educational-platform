@@ -30,7 +30,7 @@ router.register(r'users', UserViewSet)
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
-    path('api/lessons/', include('materials.urls')),
+    path('api/lessons/', include('materials.urls', namespace='materials')),
     path('api/payments/', PaymentListAPIView.as_view(), name='payments-list'),
 ]
 
