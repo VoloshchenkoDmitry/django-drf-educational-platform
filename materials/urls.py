@@ -4,13 +4,28 @@ from .views import (
     LessonRetrieveAPIView,
     LessonUpdateAPIView,
     LessonDestroyAPIView,
-    SubscriptionAPIView
+    SubscriptionAPIView,
+    PaymentCreateAPIView,
+    PaymentSuccessAPIView,
+    PaymentCancelAPIView,
+    PaymentStatusAPIView,
+    PaymentTestInfoAPIView
 )
 
 urlpatterns = [
-    path('', LessonListCreateAPIView.as_view(), name='lesson-list-create'),
-    path('<int:pk>/', LessonRetrieveAPIView.as_view(), name='lesson-retrieve'),
+    # Lessons
+    path('', LessonListCreateAPIView.as_view(), name='lesson-list'),
+    path('<int:pk>/', LessonRetrieveAPIView.as_view(), name='lesson-detail'),
     path('<int:pk>/update/', LessonUpdateAPIView.as_view(), name='lesson-update'),
     path('<int:pk>/delete/', LessonDestroyAPIView.as_view(), name='lesson-delete'),
+
+    # Subscriptions
     path('subscription/', SubscriptionAPIView.as_view(), name='subscription'),
+
+    # Payments
+    path('payments/create/', PaymentCreateAPIView.as_view(), name='payment-create'),
+    path('payments/success/', PaymentSuccessAPIView.as_view(), name='payment-success'),
+    path('payments/cancel/', PaymentCancelAPIView.as_view(), name='payment-cancel'),
+    path('payments/status/', PaymentStatusAPIView.as_view(), name='payment-status'),
+    path('payments/test-info/', PaymentTestInfoAPIView.as_view(), name='payment-test-info'),
 ]

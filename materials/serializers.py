@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import Course, Lesson, Subscription
-from .validators import validate_youtube_only, YouTubeValidator
+from .validators import validate_youtube_only
 
 
 class LessonSerializer(serializers.ModelSerializer):
@@ -8,16 +8,14 @@ class LessonSerializer(serializers.ModelSerializer):
         model = Lesson
         fields = '__all__'
         read_only_fields = ('owner',)
-        validators = [
-            YouTubeValidator(field='video_link'),
-        ]
 
-
-class SubscriptionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Subscription
-        fields = '__all__'
-        read_only_fields = ('user', 'subscribed_at')
+    def validate_video_link(self, value):
+        """
+        Валидация ссылки на видео
+        """
+        if value:
+            validate_youtube_only(value)
+        return value
 
 
 class CourseSerializer(serializers.ModelSerializer):
@@ -27,7 +25,10 @@ class CourseSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Course
-        fields = '__all__'
+        fields = [
+            'id', 'title', 'preview', 'description', 'price',
+            'owner', 'lessons_count', 'lessons', 'is_subscribed'
+        ]
         read_only_fields = ('owner',)
 
     def get_lessons_count(self, obj):

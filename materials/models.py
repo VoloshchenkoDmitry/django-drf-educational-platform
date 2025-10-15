@@ -5,6 +5,12 @@ class Course(models.Model):
     title = models.CharField(max_length=200, verbose_name='Название')
     preview = models.ImageField(upload_to='courses/previews/', blank=True, null=True, verbose_name='Превью')
     description = models.TextField(blank=True, null=True, verbose_name='Описание')
+    price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0.00,
+        verbose_name='Цена курса'
+    )
     owner = models.ForeignKey(
         'users.User',
         on_delete=models.SET_NULL,
@@ -51,9 +57,6 @@ class Lesson(models.Model):
 
 
 class Subscription(models.Model):
-    """
-    Модель подписки пользователя на курс
-    """
     user = models.ForeignKey(
         'users.User',
         on_delete=models.CASCADE,

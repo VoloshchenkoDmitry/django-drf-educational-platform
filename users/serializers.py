@@ -1,7 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
-from .models import User, Payment
-from materials.models import Course, Lesson
+from .models import User
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -23,36 +22,6 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return user
 
 
-class PaymentSerializer(serializers.ModelSerializer):
-    user_email = serializers.EmailField(source='user.email', read_only=True)
-    course_title = serializers.CharField(source='course.title', read_only=True)
-    lesson_title = serializers.CharField(source='lesson.title', read_only=True)
-
-    class Meta:
-        model = Payment
-        fields = '__all__'
-
-
-class PaymentHistorySerializer(serializers.ModelSerializer):
-    course_title = serializers.CharField(source='course.title', read_only=True)
-    lesson_title = serializers.CharField(source='lesson.title', read_only=True)
-
-    class Meta:
-        model = Payment
-        fields = ('id', 'payment_date', 'course', 'lesson', 'course_title', 'lesson_title',
-                  'amount', 'payment_method')
-        read_only_fields = fields
-
-
-class UserProfileSerializer(serializers.ModelSerializer):
-    payment_history = PaymentHistorySerializer(many=True, read_only=True, source='payments')
-
-    class Meta:
-        model = User
-        fields = ('id', 'email', 'first_name', 'last_name', 'phone', 'city', 'avatar', 'payment_history')
-        read_only_fields = ('id',)
-
-
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
@@ -65,3 +34,16 @@ class PublicUserSerializer(serializers.ModelSerializer):
         model = User
         fields = ('id', 'email', 'first_name', 'city', 'avatar')
         read_only_fields = fields
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    payment_history = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ('id', 'email', 'first_name', 'last_name', 'phone', 'city', 'avatar', 'payment_history')
+        read_only_fields = ('id',)
+
+    def get_payment_history(self, obj):
+        from payments.serializers import PaymentHistorySerializer
+        return PaymentHistorySerializer(obj.payments.all(), many=True).data

@@ -6,11 +6,10 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import User, Payment
+from .models import User
 from .serializers import (
     UserRegistrationSerializer,
     UserSerializer,
-    PaymentSerializer,
     UserProfileSerializer,
     PublicUserSerializer
 )
@@ -65,13 +64,3 @@ class UserViewSet(viewsets.ModelViewSet):
                 'access': str(refresh.access_token),
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-class PaymentListAPIView(generics.ListAPIView):
-    queryset = Payment.objects.all()
-    serializer_class = PaymentSerializer
-    permission_classes = [IsAuthenticated, IsModerator]
-    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
-    filterset_fields = ['course', 'lesson', 'payment_method']
-    ordering_fields = ['payment_date']
-    ordering = ['-payment_date']

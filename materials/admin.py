@@ -14,12 +14,14 @@ class SubscriptionInline(admin.TabularInline):
 
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ('title', 'owner', 'lessons_count')
+    list_display = ('title', 'price', 'owner', 'lessons_count')
+    list_filter = ('price',)
     search_fields = ('title',)
     inlines = [LessonInline, SubscriptionInline]
 
     def lessons_count(self, obj):
         return obj.lessons.count()
+
     lessons_count.short_description = 'Количество уроков'
 
 
