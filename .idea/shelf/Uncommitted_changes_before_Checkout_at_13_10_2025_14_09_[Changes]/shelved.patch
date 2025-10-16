@@ -1,0 +1,974 @@
+Index: users/models.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>from django.contrib.auth.models import AbstractUser\r\nfrom django.db import models\r\nfrom django.contrib.auth.models import UserManager as BaseUserManager\r\n\r\n\r\nclass UserManager(BaseUserManager):\r\n    def create_user(self, email, password=None, **extra_fields):\r\n        if not email:\r\n            raise ValueError('The Email field must be set')\r\n        email = self.normalize_email(email)\r\n        user = self.model(email=email, **extra_fields)\r\n        user.set_password(password)\r\n        user.save(using=self._db)\r\n        return user\r\n\r\n    def create_superuser(self, email, password=None, **extra_fields):\r\n        extra_fields.setdefault('is_staff', True)\r\n        extra_fields.setdefault('is_superuser', True)\r\n\r\n        if extra_fields.get('is_staff') is not True:\r\n            raise ValueError('Superuser must have is_staff=True.')\r\n        if extra_fields.get('is_superuser') is not True:\r\n            raise ValueError('Superuser must have is_superuser=True.')\r\n\r\n        return self.create_user(email, password, **extra_fields)\r\n\r\n\r\nclass User(AbstractUser):\r\n    username = None\r\n    email = models.EmailField(unique=True, verbose_name='Email')\r\n    phone = models.CharField(max_length=15, blank=True, null=True, verbose_name='Телефон')\r\n    city = models.CharField(max_length=100, blank=True, null=True, verbose_name='Город')\r\n    avatar = models.ImageField(upload_to='avatars/', blank=True, null=True, verbose_name='Аватарка')\r\n\r\n    USERNAME_FIELD = 'email'\r\n    REQUIRED_FIELDS = []\r\n\r\n    objects = UserManager()\r\n\r\n    class Meta:\r\n        verbose_name = 'Пользователь'\r\n        verbose_name_plural = 'Пользователи'\r\n\r\n    def __str__(self):\r\n        return self.email
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/users/models.py b/users/models.py
+--- a/users/models.py	
++++ b/users/models.py	
+@@ -1,6 +1,7 @@
+ from django.contrib.auth.models import AbstractUser
+ from django.db import models
+ from django.contrib.auth.models import UserManager as BaseUserManager
++from materials.models import Course, Lesson
+ 
+ 
+ class UserManager(BaseUserManager):
+@@ -42,4 +43,56 @@
+         verbose_name_plural = 'Пользователи'
+ 
+     def __str__(self):
+-        return self.email
+\ No newline at end of file
++        return self.email
++
++
++class Payment(models.Model):
++    PAYMENT_METHOD_CHOICES = [
++        ('cash', 'Наличные'),
++        ('transfer', 'Перевод на счет'),
++    ]
++
++    user = models.ForeignKey(
++        User,
++        on_delete=models.CASCADE,
++        related_name='payments',
++        verbose_name='Пользователь'
++    )
++    payment_date = models.DateTimeField(auto_now_add=True, verbose_name='Дата оплаты')
++    course = models.ForeignKey(
++        Course,
++        on_delete=models.SET_NULL,
++        blank=True,
++        null=True,
++        related_name='payments',
++        verbose_name='Оплаченный курс'
++    )
++    lesson = models.ForeignKey(
++        Lesson,
++        on_delete=models.SET_NULL,
++        blank=True,
++        null=True,
++        related_name='payments',
++        verbose_name='Оплаченный урок'
++    )
++    amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='Сумма оплаты')
++    payment_method = models.CharField(
++        max_length=10,
++        choices=PAYMENT_METHOD_CHOICES,
++        verbose_name='Способ оплаты'
++    )
++
++    class Meta:
++        verbose_name = 'Платеж'
++        verbose_name_plural = 'Платежи'
++        ordering = ['-payment_date']
++
++    def __str__(self):
++        return f"Платеж {self.user.email} - {self.amount}"
++
++    def clean(self):
++        from django.core.exceptions import ValidationError
++        if self.course and self.lesson:
++            raise ValidationError("Можно указать только курс ИЛИ урок, но не оба одновременно.")
++        if not self.course and not self.lesson:
++            raise ValidationError("Необходимо указать либо курс, либо урок.")
+\ No newline at end of file
+Index: users/serializers.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>from rest_framework import serializers\r\nfrom .models import User\r\n\r\n\r\nclass UserSerializer(serializers.ModelSerializer):\r\n    class Meta:\r\n        model = User\r\n        fields = ('id', 'email', 'first_name', 'last_name', 'phone', 'city', 'avatar')\r\n        read_only_fields = ('id',)
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/users/serializers.py b/users/serializers.py
+--- a/users/serializers.py	
++++ b/users/serializers.py	
+@@ -1,9 +1,66 @@
+ from rest_framework import serializers
+-from .models import User
++from django.contrib.auth.password_validation import validate_password
++from .models import User, Payment
++
++
++class UserRegistrationSerializer(serializers.ModelSerializer):
++    password = serializers.CharField(write_only=True, validators=[validate_password])
++    password_confirm = serializers.CharField(write_only=True)
++
++    class Meta:
++        model = User
++        fields = ('email', 'password', 'password_confirm', 'first_name', 'last_name', 'phone', 'city')
++
++    def validate(self, attrs):
++        if attrs['password'] != attrs['password_confirm']:
++            raise serializers.ValidationError({"password": "Password fields didn't match."})
++        return attrs
++
++    def create(self, validated_data):
++        validated_data.pop('password_confirm')
++        user = User.objects.create_user(**validated_data)
++        return user
++
++
++class PaymentSerializer(serializers.ModelSerializer):
++    user_email = serializers.EmailField(source='user.email', read_only=True)
++    course_title = serializers.CharField(source='course.title', read_only=True)
++    lesson_title = serializers.CharField(source='lesson.title', read_only=True)
++
++    class Meta:
++        model = Payment
++        fields = '__all__'
++
++
++class PaymentHistorySerializer(serializers.ModelSerializer):
++    course_title = serializers.CharField(source='course.title', read_only=True)
++    lesson_title = serializers.CharField(source='lesson.title', read_only=True)
++
++    class Meta:
++        model = Payment
++        fields = ('id', 'payment_date', 'course', 'lesson', 'course_title', 'lesson_title',
++                  'amount', 'payment_method')
++        read_only_fields = fields
++
++
++class UserProfileSerializer(serializers.ModelSerializer):
++    payment_history = PaymentHistorySerializer(many=True, read_only=True, source='payments')
++
++    class Meta:
++        model = User
++        fields = ('id', 'email', 'first_name', 'last_name', 'phone', 'city', 'avatar', 'payment_history')
++        read_only_fields = ('id',)
+ 
+ 
+ class UserSerializer(serializers.ModelSerializer):
+     class Meta:
+         model = User
+-        fields = ('id', 'email', 'first_name', 'last_name', 'phone', 'city', 'avatar')
+-        read_only_fields = ('id',)
+\ No newline at end of file
++        fields = ('id', 'email', 'first_name', 'last_name', 'phone', 'city', 'avatar', 'is_staff')
++        read_only_fields = ('id', 'is_staff')
++
++
++class PublicUserSerializer(serializers.ModelSerializer):
++    class Meta:
++        model = User
++        fields = ('id', 'email', 'first_name', 'city', 'avatar')
++        read_only_fields = fields
+\ No newline at end of file
+Index: users/views.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>from rest_framework import viewsets\r\nfrom .models import User\r\nfrom .serializers import UserSerializer\r\n\r\n\r\nclass UserViewSet(viewsets.ModelViewSet):\r\n    queryset = User.objects.all()\r\n    serializer_class = UserSerializer
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/users/views.py b/users/views.py
+--- a/users/views.py	
++++ b/users/views.py	
+@@ -1,8 +1,77 @@
+-from rest_framework import viewsets
+-from .models import User
+-from .serializers import UserSerializer
++from rest_framework import viewsets, generics, status
++from rest_framework.decorators import action
++from rest_framework.response import Response
++from rest_framework.permissions import AllowAny, IsAuthenticated
++from django_filters.rest_framework import DjangoFilterBackend
++from rest_framework import filters
++from rest_framework_simplejwt.tokens import RefreshToken
++
++from .models import User, Payment
++from .serializers import (
++    UserRegistrationSerializer,
++    UserSerializer,
++    PaymentSerializer,
++    UserProfileSerializer,
++    PublicUserSerializer
++)
++from .permissions import IsModerator, IsProfileOwnerOrReadOnly  # Исправленный импорт
+ 
+ 
+ class UserViewSet(viewsets.ModelViewSet):
+     queryset = User.objects.all()
+-    serializer_class = UserSerializer
+\ No newline at end of file
++    serializer_class = UserSerializer
++    permission_classes = [IsAuthenticated]
++
++    def get_permissions(self):
++        """
++        Разные права для разных действий
++        """
++        if self.action == 'create':
++            self.permission_classes = [AllowAny]
++        elif self.action in ['retrieve', 'update', 'partial_update', 'destroy']:
++            self.permission_classes = [IsAuthenticated, IsProfileOwnerOrReadOnly]
++        elif self.action == 'list':
++            self.permission_classes = [IsAuthenticated, IsModerator]
++        return [permission() for permission in self.permission_classes]
++
++    def get_serializer_class(self):
++        """
++        Разные сериализаторы для разных действий
++        """
++        if self.action == 'retrieve' and self.request.user != self.get_object():
++            return PublicUserSerializer
++        return super().get_serializer_class()
++
++    @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated])
++    def profile(self, request, pk=None):
++        user = self.get_object()
++
++        if user == request.user:
++            serializer = UserProfileSerializer(user)
++        else:
++            serializer = PublicUserSerializer(user)
++
++        return Response(serializer.data)
++
++    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
++    def register(self, request):
++        serializer = UserRegistrationSerializer(data=request.data)
++        if serializer.is_valid():
++            user = serializer.save()
++            refresh = RefreshToken.for_user(user)
++            return Response({
++                'user': UserSerializer(user).data,
++                'refresh': str(refresh),
++                'access': str(refresh.access_token),
++            }, status=status.HTTP_201_CREATED)
++        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
++
++
++class PaymentListAPIView(generics.ListAPIView):
++    queryset = Payment.objects.all()
++    serializer_class = PaymentSerializer
++    permission_classes = [IsAuthenticated, IsModerator]  # Исправленный импорт
++    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
++    filterset_fields = ['course', 'lesson', 'payment_method']
++    ordering_fields = ['payment_date']
++    ordering = ['-payment_date']
+\ No newline at end of file
+Index: materials/permissions.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/materials/permissions.py b/materials/permissions.py
+new file mode 100644
+--- /dev/null	
++++ b/materials/permissions.py	
+@@ -0,0 +1,50 @@
++from rest_framework import permissions
++from users.permissions import IsModerator
++
++
++class IsOwnerOrModerator(permissions.BasePermission):
++    """
++    Проверка, является ли пользователь владельцем или модератором
++    """
++    def has_object_permission(self, request, view, obj):
++        if request.user.groups.filter(name='moderators').exists():
++            return True
++        return obj.owner == request.user
++
++
++class CoursePermission(permissions.BasePermission):
++    """
++    Права доступа для курсов
++    """
++    def has_permission(self, request, view):
++        if view.action == 'create':
++            return request.user.is_authenticated and not request.user.groups.filter(name='moderators').exists()
++        return request.user.is_authenticated
++
++    def has_object_permission(self, request, view, obj):
++        if view.action in ['retrieve', 'update', 'partial_update']:
++            if request.user.groups.filter(name='moderators').exists():
++                return True
++            return obj.owner == request.user
++        elif view.action == 'destroy':
++            return obj.owner == request.user
++        return True
++
++
++class LessonPermission(permissions.BasePermission):
++    """
++    Права доступа для уроков
++    """
++    def has_permission(self, request, view):
++        if view.action == 'create':
++            return request.user.is_authenticated and not request.user.groups.filter(name='moderators').exists()
++        return request.user.is_authenticated
++
++    def has_object_permission(self, request, view, obj):
++        if view.action in ['retrieve', 'update', 'partial_update']:
++            if request.user.groups.filter(name='moderators').exists():
++                return True
++            return obj.owner == request.user
++        elif view.action == 'destroy':
++            return obj.owner == request.user
++        return True
+\ No newline at end of file
+Index: users/permissions.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/users/permissions.py b/users/permissions.py
+new file mode 100644
+--- /dev/null	
++++ b/users/permissions.py	
+@@ -0,0 +1,37 @@
++from rest_framework import permissions
++
++
++class IsModerator(permissions.BasePermission):
++    """
++    Проверка, является ли пользователь модератором
++    """
++    def has_permission(self, request, view):
++        return request.user.groups.filter(name='moderators').exists()
++
++
++class IsOwner(permissions.BasePermission):
++    """
++    Проверка, является ли пользователь владельцем объекта
++    """
++    def has_object_permission(self, request, view, obj):
++        return obj.owner == request.user
++
++
++class IsOwnerOrModerator(permissions.BasePermission):
++    """
++    Проверка, является ли пользователь владельцем или модератором
++    """
++    def has_object_permission(self, request, view, obj):
++        if request.user.groups.filter(name='moderators').exists():
++            return True
++        return obj.owner == request.user
++
++
++class IsProfileOwnerOrReadOnly(permissions.BasePermission):
++    """
++    Разрешает редактирование только владельцу профиля, чтение - всем авторизованным
++    """
++    def has_object_permission(self, request, view, obj):
++        if request.method in permissions.SAFE_METHODS:
++            return True
++        return obj == request.user
+\ No newline at end of file
+Index: materials/urls.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>from django.urls import path\r\nfrom .views import (\r\n    LessonListCreateAPIView,\r\n    LessonRetrieveAPIView,\r\n    LessonUpdateAPIView,\r\n    LessonDestroyAPIView\r\n)\r\n\r\nurlpatterns = [\r\n    path('', LessonListCreateAPIView.as_view(), name='lesson-list-create'),\r\n    path('<int:pk>/', LessonRetrieveAPIView.as_view(), name='lesson-retrieve'),\r\n    path('<int:pk>/update/', LessonUpdateAPIView.as_view(), name='lesson-update'),\r\n    path('<int:pk>/delete/', LessonDestroyAPIView.as_view(), name='lesson-delete'),\r\n]
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/materials/urls.py b/materials/urls.py
+--- a/materials/urls.py	
++++ b/materials/urls.py	
+@@ -3,7 +3,8 @@
+     LessonListCreateAPIView,
+     LessonRetrieveAPIView,
+     LessonUpdateAPIView,
+-    LessonDestroyAPIView
++    LessonDestroyAPIView,
++    SubscriptionAPIView
+ )
+ 
+ urlpatterns = [
+@@ -11,4 +12,5 @@
+     path('<int:pk>/', LessonRetrieveAPIView.as_view(), name='lesson-retrieve'),
+     path('<int:pk>/update/', LessonUpdateAPIView.as_view(), name='lesson-update'),
+     path('<int:pk>/delete/', LessonDestroyAPIView.as_view(), name='lesson-delete'),
++    path('subscription/', SubscriptionAPIView.as_view(), name='subscription'),
+ ]
+\ No newline at end of file
+Index: materials/views.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>from rest_framework import viewsets, generics\r\nfrom .models import Course, Lesson\r\nfrom .serializers import CourseSerializer, LessonSerializer\r\n\r\n\r\nclass CourseViewSet(viewsets.ModelViewSet):\r\n    queryset = Course.objects.all()\r\n    serializer_class = CourseSerializer\r\n\r\n\r\nclass LessonListCreateAPIView(generics.ListCreateAPIView):\r\n    queryset = Lesson.objects.all()\r\n    serializer_class = LessonSerializer\r\n\r\n\r\nclass LessonRetrieveAPIView(generics.RetrieveAPIView):\r\n    queryset = Lesson.objects.all()\r\n    serializer_class = LessonSerializer\r\n\r\n\r\nclass LessonUpdateAPIView(generics.UpdateAPIView):\r\n    queryset = Lesson.objects.all()\r\n    serializer_class = LessonSerializer\r\n\r\n\r\nclass LessonDestroyAPIView(generics.DestroyAPIView):\r\n    queryset = Lesson.objects.all()\r\n    serializer_class = LessonSerializer
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/materials/views.py b/materials/views.py
+--- a/materials/views.py	
++++ b/materials/views.py	
+@@ -1,28 +1,112 @@
+-from rest_framework import viewsets, generics
+-from .models import Course, Lesson
+-from .serializers import CourseSerializer, LessonSerializer
++from rest_framework import viewsets, generics, status
++from rest_framework.views import APIView
++from rest_framework.response import Response
++from rest_framework.permissions import IsAuthenticated
++from django.shortcuts import get_object_or_404
++
++from .models import Course, Lesson, Subscription
++from .serializers import CourseSerializer, LessonSerializer, SubscriptionSerializer
++from .permissions import CoursePermission, LessonPermission  # Исправленный импорт
++from .paginators import LessonPaginator, CoursePaginator
+ 
+ 
+ class CourseViewSet(viewsets.ModelViewSet):
+     queryset = Course.objects.all()
+     serializer_class = CourseSerializer
++    permission_classes = [CoursePermission]
++    pagination_class = CoursePaginator
++
++    def perform_create(self, serializer):
++        serializer.save(owner=self.request.user)
++
++    def get_queryset(self):
++        user = self.request.user
++        if user.groups.filter(name='moderators').exists():
++            return Course.objects.all()
++        return Course.objects.filter(owner=user)
++
++    def get_serializer_context(self):
++        context = super().get_serializer_context()
++        context['request'] = self.request
++        return context
+ 
+ 
+ class LessonListCreateAPIView(generics.ListCreateAPIView):
+     queryset = Lesson.objects.all()
+     serializer_class = LessonSerializer
++    permission_classes = [LessonPermission]  # Исправленный импорт
++    pagination_class = LessonPaginator
++
++    def perform_create(self, serializer):
++        serializer.save(owner=self.request.user)
++
++    def get_queryset(self):
++        user = self.request.user
++        if user.groups.filter(name='moderators').exists():
++            return Lesson.objects.all()
++        return Lesson.objects.filter(owner=user)
+ 
+ 
+ class LessonRetrieveAPIView(generics.RetrieveAPIView):
+     queryset = Lesson.objects.all()
+     serializer_class = LessonSerializer
++    permission_classes = [LessonPermission]  # Исправленный импорт
++
++    def get_queryset(self):
++        user = self.request.user
++        if user.groups.filter(name='moderators').exists():
++            return Lesson.objects.all()
++        return Lesson.objects.filter(owner=user)
+ 
+ 
+ class LessonUpdateAPIView(generics.UpdateAPIView):
+     queryset = Lesson.objects.all()
+     serializer_class = LessonSerializer
++    permission_classes = [LessonPermission]  # Исправленный импорт
++
++    def get_queryset(self):
++        user = self.request.user
++        if user.groups.filter(name='moderators').exists():
++            return Lesson.objects.all()
++        return Lesson.objects.filter(owner=user)
+ 
+ 
+ class LessonDestroyAPIView(generics.DestroyAPIView):
+     queryset = Lesson.objects.all()
+-    serializer_class = LessonSerializer
+\ No newline at end of file
++    serializer_class = LessonSerializer
++    permission_classes = [LessonPermission]  # Исправленный импорт
++
++    def get_queryset(self):
++        user = self.request.user
++        if user.groups.filter(name='moderators').exists():
++            return Lesson.objects.all()
++        return Lesson.objects.filter(owner=user)
++
++
++class SubscriptionAPIView(APIView):
++    """
++    APIView для управления подписками на курсы
++    """
++    permission_classes = [IsAuthenticated]
++
++    def post(self, request, *args, **kwargs):
++        user = request.user
++        course_id = request.data.get('course_id')
++
++        if not course_id:
++            return Response(
++                {"error": "course_id обязателен"},
++                status=status.HTTP_400_BAD_REQUEST
++            )
++
++        course_item = get_object_or_404(Course, id=course_id)
++        subscription = Subscription.objects.filter(user=user, course=course_item)
++
++        if subscription.exists():
++            subscription.delete()
++            message = 'Подписка удалена'
++        else:
++            Subscription.objects.create(user=user, course=course_item)
++            message = 'Подписка добавлена'
++
++        return Response({"message": message})
+\ No newline at end of file
+Index: materials/tests.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>from django.test import TestCase\r\n\r\n# Create your tests here.\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/materials/tests.py b/materials/tests.py
+--- a/materials/tests.py	
++++ b/materials/tests.py	
+@@ -1,3 +1,245 @@
+ from django.test import TestCase
++from django.urls import reverse
++from rest_framework import status
++from rest_framework.test import APITestCase, APIClient
++
++from .models import Course, Lesson, Subscription
++from users.models import User
++
++
++class LessonTestCase(APITestCase):
++    def setUp(self):
++        """
++        Настройка тестовых данных
++        """
++        # Создаем пользователей
++        self.owner = User.objects.create_user(
++            email='owner@test.com',
++            password='testpass123',
++            first_name='Owner',
++            last_name='Test'
++        )
++
++        self.moderator = User.objects.create_user(
++            email='moderator@test.com',
++            password='testpass123',
++            first_name='Moderator',
++            last_name='Test'
++        )
++
++        self.other_user = User.objects.create_user(
++            email='other@test.com',
++            password='testpass123',
++            first_name='Other',
++            last_name='User'
++        )
++
++        # Создаем курс
++        self.course = Course.objects.create(
++            title='Test Course',
++            description='Test Description',
++            owner=self.owner
++        )
++
++        # Создаем урок
++        self.lesson = Lesson.objects.create(
++            title='Test Lesson',
++            description='Test Lesson Description',
++            video_link='https://www.youtube.com/watch?v=test123',
++            course=self.course,
++            owner=self.owner
++        )
++
++        # URL для тестов
++        self.lessons_list_url = reverse('lesson-list-create')
++        self.lesson_detail_url = reverse('lesson-retrieve', kwargs={'pk': self.lesson.pk})
++        self.lesson_update_url = reverse('lesson-update', kwargs={'pk': self.lesson.pk})
++        self.lesson_delete_url = reverse('lesson-delete', kwargs={'pk': self.lesson.pk})
++
++    def test_lesson_list_authenticated(self):
++        """Тест получения списка уроков авторизованным пользователем"""
++        self.client.force_authenticate(user=self.owner)
++        response = self.client.get(self.lessons_list_url)
++        self.assertEqual(response.status_code, status.HTTP_200_OK)
++
++    def test_lesson_list_unauthenticated(self):
++        """Тест получения списка уроков неавторизованным пользователем"""
++        response = self.client.get(self.lessons_list_url)
++        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
++
++    def test_lesson_create_owner(self):
++        """Тест создания урока владельцем"""
++        self.client.force_authenticate(user=self.owner)
++        data = {
++            'title': 'New Lesson',
++            'description': 'New Lesson Description',
++            'video_link': 'https://www.youtube.com/watch?v=new123',
++            'course': self.course.id
++        }
++        response = self.client.post(self.lessons_list_url, data)
++        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
++        self.assertEqual(Lesson.objects.count(), 2)
++
++    def test_lesson_create_invalid_video_link(self):
++        """Тест создания урока с невалидной ссылкой на видео"""
++        self.client.force_authenticate(user=self.owner)
++        data = {
++            'title': 'Invalid Lesson',
++            'description': 'Invalid Lesson Description',
++            'video_link': 'https://vimeo.com/invalid123',
++            'course': self.course.id
++        }
++        response = self.client.post(self.lessons_list_url, data)
++        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
++
++    def test_lesson_update_owner(self):
++        """Тест обновления урока владельцем"""
++        self.client.force_authenticate(user=self.owner)
++        data = {
++            'title': 'Updated Lesson',
++            'description': 'Updated Description'
++        }
++        response = self.client.patch(self.lesson_update_url, data)
++        self.assertEqual(response.status_code, status.HTTP_200_OK)
++        self.lesson.refresh_from_db()
++        self.assertEqual(self.lesson.title, 'Updated Lesson')
++
++    def test_lesson_update_other_user(self):
++        """Тест обновления урока другим пользователем"""
++        self.client.force_authenticate(user=self.other_user)
++        data = {'title': 'Hacked Lesson'}
++        response = self.client.patch(self.lesson_update_url, data)
++        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
++
++    def test_lesson_delete_owner(self):
++        """Тест удаления урока владельцем"""
++        self.client.force_authenticate(user=self.owner)
++        response = self.client.delete(self.lesson_delete_url)
++        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
++        self.assertEqual(Lesson.objects.count(), 0)
++
++    def test_lesson_delete_other_user(self):
++        """Тест удаления урока другим пользователем"""
++        self.client.force_authenticate(user=self.other_user)
++        response = self.client.delete(self.lesson_delete_url)
++        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
++        self.assertEqual(Lesson.objects.count(), 1)
++
++
++class SubscriptionTestCase(APITestCase):
++    def setUp(self):
++        """
++        Настройка тестовых данных для подписок
++        """
++        self.user = User.objects.create_user(
++            email='user@test.com',
++            password='testpass123'
++        )
++
++        self.course = Course.objects.create(
++            title='Test Course for Subscription',
++            description='Test Description',
++            owner=self.user
++        )
++
++        self.subscription_url = reverse('subscription')
++
++    def test_subscription_create(self):
++        """Тест создания подписки"""
++        self.client.force_authenticate(user=self.user)
++        data = {'course_id': self.course.id}
++        response = self.client.post(self.subscription_url, data)
++
++        self.assertEqual(response.status_code, status.HTTP_200_OK)
++        self.assertEqual(Subscription.objects.count(), 1)
++        self.assertIn('добавлена', response.data['message'])
++
++    def test_subscription_delete(self):
++        """Тест удаления подписки"""
++        # Сначала создаем подписку
++        Subscription.objects.create(user=self.user, course=self.course)
++
++        self.client.force_authenticate(user=self.user)
++        data = {'course_id': self.course.id}
++        response = self.client.post(self.subscription_url, data)
++
++        self.assertEqual(response.status_code, status.HTTP_200_OK)
++        self.assertEqual(Subscription.objects.count(), 0)
++        self.assertIn('удалена', response.data['message'])
++
++    def test_subscription_without_course_id(self):
++        """Тест подписки без course_id"""
++        self.client.force_authenticate(user=self.user)
++        response = self.client.post(self.subscription_url, {})
++
++        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
++        self.assertIn('course_id', response.data['error'])
++
++    def test_subscription_unauthenticated(self):
++        """Тест подписки неавторизованным пользователем"""
++        data = {'course_id': self.course.id}
++        response = self.client.post(self.subscription_url, data)
++
++        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
++
++
++class CourseSerializerTestCase(TestCase):
++    def setUp(self):
++        self.user = User.objects.create_user(
++            email='test@test.com',
++            password='testpass123'
++        )
++
++        self.course = Course.objects.create(
++            title='Test Course',
++            description='Test Description',
++            owner=self.user
++        )
++
++        # Создаем несколько уроков для курса
++        Lesson.objects.create(
++            title='Lesson 1',
++            description='Description 1',
++            course=self.course,
++            owner=self.user
++        )
++        Lesson.objects.create(
++            title='Lesson 2',
++            description='Description 2',
++            course=self.course,
++            owner=self.user
++        )
++
++    def test_course_serializer_lessons_count(self):
++        """Тест подсчета количества уроков в сериализаторе курса"""
++        from .serializers import CourseSerializer
++
++        serializer = CourseSerializer(self.course)
++        self.assertEqual(serializer.data['lessons_count'], 2)
++
++    def test_course_serializer_is_subscribed(self):
++        """Тест поля is_subscribed в сериализаторе курса"""
++        from .serializers import CourseSerializer
++        from rest_framework.request import Request
++        from rest_framework.test import APIRequestFactory
+ 
+-# Create your tests here.
++        factory = APIRequestFactory()
++        request = factory.get('/')
++        request.user = self.user
++
++        serializer = CourseSerializer(
++            self.course,
++            context={'request': request}
++        )
++
++        # Изначально пользователь не подписан
++        self.assertFalse(serializer.data['is_subscribed'])
++
++        # Создаем подписку
++        Subscription.objects.create(user=self.user, course=self.course)
++
++        serializer = CourseSerializer(
++            self.course,
++            context={'request': request}
++        )
++        self.assertTrue(serializer.data['is_subscribed'])
+\ No newline at end of file
+Index: materials/models.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>from django.db import models\r\n\r\n\r\nclass Course(models.Model):\r\n    title = models.CharField(max_length=200, verbose_name='Название')\r\n    preview = models.ImageField(upload_to='courses/previews/', blank=True, null=True, verbose_name='Превью')\r\n    description = models.TextField(blank=True, null=True, verbose_name='Описание')\r\n\r\n    class Meta:\r\n        verbose_name = 'Курс'\r\n        verbose_name_plural = 'Курсы'\r\n\r\n    def __str__(self):\r\n        return self.title\r\n\r\n\r\nclass Lesson(models.Model):\r\n    title = models.CharField(max_length=200, verbose_name='Название')\r\n    description = models.TextField(blank=True, null=True, verbose_name='Описание')\r\n    preview = models.ImageField(upload_to='lessons/previews/', blank=True, null=True, verbose_name='Превью')\r\n    video_link = models.URLField(blank=True, null=True, verbose_name='Ссылка на видео')\r\n    course = models.ForeignKey(\r\n        Course,\r\n        on_delete=models.CASCADE,\r\n        related_name='lessons',\r\n        verbose_name='Курс'\r\n    )\r\n\r\n    class Meta:\r\n        verbose_name = 'Урок'\r\n        verbose_name_plural = 'Уроки'\r\n\r\n    def __str__(self):\r\n        return self.title
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/materials/models.py b/materials/models.py
+--- a/materials/models.py	
++++ b/materials/models.py	
+@@ -1,10 +1,19 @@
+ from django.db import models
++from users.models import User
+ 
+ 
+ class Course(models.Model):
+     title = models.CharField(max_length=200, verbose_name='Название')
+     preview = models.ImageField(upload_to='courses/previews/', blank=True, null=True, verbose_name='Превью')
+     description = models.TextField(blank=True, null=True, verbose_name='Описание')
++    owner = models.ForeignKey(
++        User,
++        on_delete=models.SET_NULL,
++        blank=True,
++        null=True,
++        related_name='courses',
++        verbose_name='Владелец'
++    )
+ 
+     class Meta:
+         verbose_name = 'Курс'
+@@ -25,10 +34,45 @@
+         related_name='lessons',
+         verbose_name='Курс'
+     )
++    owner = models.ForeignKey(
++        User,
++        on_delete=models.SET_NULL,
++        blank=True,
++        null=True,
++        related_name='lessons',
++        verbose_name='Владелец'
++    )
+ 
+     class Meta:
+         verbose_name = 'Урок'
+         verbose_name_plural = 'Уроки'
+ 
+     def __str__(self):
+-        return self.title
+\ No newline at end of file
++        return self.title
++
++
++class Subscription(models.Model):
++    """
++    Модель подписки пользователя на курс
++    """
++    user = models.ForeignKey(
++        User,
++        on_delete=models.CASCADE,
++        related_name='subscriptions',
++        verbose_name='Пользователь'
++    )
++    course = models.ForeignKey(
++        Course,
++        on_delete=models.CASCADE,
++        related_name='subscriptions',
++        verbose_name='Курс'
++    )
++    subscribed_at = models.DateTimeField(auto_now_add=True, verbose_name='Дата подписки')
++
++    class Meta:
++        verbose_name = 'Подписка'
++        verbose_name_plural = 'Подписки'
++        unique_together = ['user', 'course']  # Одна подписка на курс для пользователя
++
++    def __str__(self):
++        return f"{self.user.email} подписан на {self.course.title}"
+\ No newline at end of file
+Index: materials/serializers.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>from rest_framework import serializers\r\nfrom .models import Course, Lesson\r\n\r\n\r\nclass LessonSerializer(serializers.ModelSerializer):\r\n    class Meta:\r\n        model = Lesson\r\n        fields = '__all__'\r\n\r\n\r\nclass CourseSerializer(serializers.ModelSerializer):\r\n    lessons = LessonSerializer(many=True, read_only=True)\r\n    lessons_count = serializers.SerializerMethodField()\r\n\r\n    class Meta:\r\n        model = Course\r\n        fields = '__all__'\r\n\r\n    def get_lessons_count(self, obj):\r\n        return obj.lessons.count()
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/materials/serializers.py b/materials/serializers.py
+--- a/materials/serializers.py	
++++ b/materials/serializers.py	
+@@ -1,20 +1,46 @@
+ from rest_framework import serializers
+-from .models import Course, Lesson
++from .models import Course, Lesson, Subscription
++from .validators import validate_youtube_only, YouTubeValidator
+ 
+ 
+ class LessonSerializer(serializers.ModelSerializer):
+     class Meta:
+         model = Lesson
+         fields = '__all__'
++        read_only_fields = ('owner',)
++        validators = [
++            YouTubeValidator(field='video_link'),
++        ]
++
++
++class SubscriptionSerializer(serializers.ModelSerializer):
++    class Meta:
++        model = Subscription
++        fields = '__all__'
++        read_only_fields = ('user', 'subscribed_at')
+ 
+ 
+ class CourseSerializer(serializers.ModelSerializer):
+-    lessons = LessonSerializer(many=True, read_only=True)
+     lessons_count = serializers.SerializerMethodField()
++    lessons = LessonSerializer(many=True, read_only=True)
++    is_subscribed = serializers.SerializerMethodField()
+ 
+     class Meta:
+         model = Course
+         fields = '__all__'
++        read_only_fields = ('owner',)
+ 
+     def get_lessons_count(self, obj):
+-        return obj.lessons.count()
+\ No newline at end of file
++        return obj.lessons.count()
++
++    def get_is_subscribed(self, obj):
++        """
++        Проверяет, подписан ли текущий пользователь на курс
++        """
++        request = self.context.get('request')
++        if request and request.user.is_authenticated:
++            return Subscription.objects.filter(
++                user=request.user,
++                course=obj
++            ).exists()
++        return False
+\ No newline at end of file
+Index: materials/admin.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>from django.contrib import admin\r\nfrom .models import Course, Lesson\r\n\r\n\r\nclass LessonInline(admin.TabularInline):\r\n    model = Lesson\r\n    extra = 1\r\n\r\n\r\n@admin.register(Course)\r\nclass CourseAdmin(admin.ModelAdmin):\r\n    list_display = ('title',)\r\n    search_fields = ('title',)\r\n    inlines = [LessonInline]\r\n\r\n\r\n@admin.register(Lesson)\r\nclass LessonAdmin(admin.ModelAdmin):\r\n    list_display = ('title', 'course')\r\n    list_filter = ('course',)\r\n    search_fields = ('title', 'description')
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/materials/admin.py b/materials/admin.py
+--- a/materials/admin.py	
++++ b/materials/admin.py	
+@@ -1,5 +1,5 @@
+ from django.contrib import admin
+-from .models import Course, Lesson
++from .models import Course, Lesson, Subscription
+ 
+ 
+ class LessonInline(admin.TabularInline):
+@@ -7,15 +7,32 @@
+     extra = 1
+ 
+ 
++class SubscriptionInline(admin.TabularInline):
++    model = Subscription
++    extra = 1
++
++
+ @admin.register(Course)
+ class CourseAdmin(admin.ModelAdmin):
+-    list_display = ('title',)
++    list_display = ('title', 'owner', 'lessons_count')
+     search_fields = ('title',)
+-    inlines = [LessonInline]
++    inlines = [LessonInline, SubscriptionInline]
++
++    def lessons_count(self, obj):
++        return obj.lessons.count()
++
++    lessons_count.short_description = 'Количество уроков'
+ 
+ 
+ @admin.register(Lesson)
+ class LessonAdmin(admin.ModelAdmin):
+-    list_display = ('title', 'course')
++    list_display = ('title', 'course', 'owner')
+     list_filter = ('course',)
+-    search_fields = ('title', 'description')
+\ No newline at end of file
++    search_fields = ('title', 'description')
++
++
++@admin.register(Subscription)
++class SubscriptionAdmin(admin.ModelAdmin):
++    list_display = ('user', 'course', 'subscribed_at')
++    list_filter = ('course', 'subscribed_at')
++    search_fields = ('user__email', 'course__title')
+\ No newline at end of file

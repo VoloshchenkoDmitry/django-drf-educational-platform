@@ -1,0 +1,13 @@
+Index: users/urls.py
+===================================================================
+diff --git a/users/urls.py b/users/urls.py
+--- a/users/urls.py	
++++ b/users/urls.py	
+@@ -1,0 +1,6 @@
++from django.urls import path
++from .views import PaymentListAPIView
++
++urlpatterns = [
++    path('payments/', PaymentListAPIView.as_view(), name='payments-list'),
++]
+\ No newline at end of file
