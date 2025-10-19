@@ -1,8 +1,8 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from .models import User
-from payments.models import Payment, Subscription
-from payments.serializers import PaymentHistorySerializer
+from payments.models import Payment  # Импортируем из payments
+from payments.serializers import PaymentHistorySerializer  # Импортируем из payments
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -26,16 +26,11 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
 class UserProfileSerializer(serializers.ModelSerializer):
     payment_history = PaymentHistorySerializer(many=True, read_only=True, source='payments')
-    active_subscriptions = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ('id', 'email', 'first_name', 'last_name', 'phone', 'city', 'avatar',
-                  'payment_history', 'active_subscriptions')
+        fields = ('id', 'email', 'first_name', 'last_name', 'phone', 'city', 'avatar', 'payment_history')
         read_only_fields = ('id',)
-
-    def get_active_subscriptions(self, obj):
-        return obj.subscriptions.filter(is_active=True).count()
 
 
 class UserSerializer(serializers.ModelSerializer):

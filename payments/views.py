@@ -1,45 +1,30 @@
-from rest_framework import generics, status, viewsets
-from rest_framework.views import APIView
-from rest_framework.response import Response
+from rest_framework import generics, status, views
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from django.shortcuts import get_object_or_404
+from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
-from .models import Payment, Subscription
-from .serializers import (
-    PaymentSerializer,
-    PaymentCreateSerializer,
-    SubscriptionSerializer,
-    SubscriptionCreateSerializer,
-    PaymentHistorySerializer
-)
-from .services import create_payment_flow, get_stripe_session_status, update_payment_status
-from materials.models import Course
 from users.permissions import IsModerator
-from config.stripe_config import STRIPE_API_KEY
+from .models import Payment
+from .serializers import PaymentSerializer
+from .services import create_payment_flow, get_stripe_session_status
+from materials.models import Course
 
 
 class PaymentListAPIView(generics.ListAPIView):
-    """
-    Получение списка платежей (только для модераторов)
-    """
     queryset = Payment.objects.all()
     serializer_class = PaymentSerializer
     permission_classes = [IsAuthenticated, IsModerator]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
-    filterset_fields = ['course', 'lesson', 'payment_method', 'status']
-    ordering_fields = ['payment_date', 'amount']
+    filterset_fields = ['course', 'lesson', 'payment_method']
+    ordering_fields = ['payment_date']
     ordering = ['-payment_date']
 
-    def get_queryset(self):
-        return Payment.objects.select_related('user', 'course', 'lesson')
 
-
-class PaymentCreateAPIView(APIView):
+class PaymentCreateAPIView(views.APIView):
     """
     Создание платежа для курса через Stripe
     """
@@ -63,29 +48,10 @@ class PaymentCreateAPIView(APIView):
                     'amount': openapi.Schema(type=openapi.TYPE_NUMBER),
                     'course': openapi.Schema(type=openapi.TYPE_STRING)
                 }
-            ),
-            400: openapi.Schema(
-                type=openapi.TYPE_OBJECT,
-                properties={
-                    'error': openapi.Schema(type=openapi.TYPE_STRING)
-                }
-            ),
-            500: openapi.Schema(
-                type=openapi.TYPE_OBJECT,
-                properties={
-                    'error': openapi.Schema(type=openapi.TYPE_STRING)
-                }
             )
         }
     )
     def post(self, request, *args, **kwargs):
-        # Проверяем настройку Stripe
-        if not STRIPE_API_KEY or STRIPE_API_KEY.startswith('sk_test_default'):
-            return Response(
-                {"error": "Stripe не настроен. Обратитесь к администратору."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
         user = request.user
         course_id = request.data.get('course_id')
 
@@ -98,13 +64,13 @@ class PaymentCreateAPIView(APIView):
         course = get_object_or_404(Course, id=course_id)
 
         # Проверяем, не оплачен ли уже курс
-        existing_paid_payment = Payment.objects.filter(
+        existing_payment = Payment.objects.filter(
             user=user,
             course=course,
-            status='paid'
+            is_paid=True
         ).exists()
 
-        if existing_paid_payment:
+        if existing_payment:
             return Response(
                 {"error": "Курс уже оплачен"},
                 status=status.HTTP_400_BAD_REQUEST
@@ -122,7 +88,6 @@ class PaymentCreateAPIView(APIView):
                 "payment_url": payment.payment_url,
                 "amount": float(payment.amount),
                 "course": course.title,
-                "status": payment.status,
                 "message": "Ссылка для оплаты создана"
             }, status=status.HTTP_201_CREATED)
 
@@ -133,7 +98,7 @@ class PaymentCreateAPIView(APIView):
             )
 
 
-class PaymentSuccessAPIView(APIView):
+class PaymentSuccessAPIView(views.APIView):
     """
     Обработка успешной оплаты
     """
@@ -149,25 +114,10 @@ class PaymentSuccessAPIView(APIView):
         )}
     )
     def get(self, request, *args, **kwargs):
-        session_id = request.GET.get('session_id')
-        if session_id:
-            try:
-                payment = update_payment_status(session_id)
-                return Response({
-                    "message": "Оплата прошла успешно! Спасибо за покупку.",
-                    "course": payment.course.title if payment.course else None,
-                    "amount": float(payment.amount)
-                })
-            except Exception as e:
-                return Response(
-                    {"error": str(e)},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
         return Response({"message": "Оплата прошла успешно! Спасибо за покупку."})
 
 
-class PaymentCancelAPIView(APIView):
+class PaymentCancelAPIView(views.APIView):
     """
     Обработка отмены оплаты
     """
@@ -186,7 +136,7 @@ class PaymentCancelAPIView(APIView):
         return Response({"message": "Оплата отменена. Вы можете попробовать снова."})
 
 
-class PaymentStatusAPIView(APIView):
+class PaymentStatusAPIView(views.APIView):
     """
     Проверка статуса платежа
     """
@@ -237,13 +187,18 @@ class PaymentStatusAPIView(APIView):
             else:
                 payment = get_object_or_404(Payment, stripe_session_id=session_id, user=request.user)
 
-            # Получаем статус из Stripe и обновляем
-            payment = update_payment_status(session_id)
+            # Получаем статус из Stripe
+            session = get_stripe_session_status(session_id)
+
+            # Обновляем статус платежа в нашей системе
+            if session.payment_status == 'paid' and not payment.is_paid:
+                payment.is_paid = True
+                payment.save()
 
             return Response({
                 "payment_id": payment.id,
-                "status": payment.status,
-                "paid": payment.status == 'paid',
+                "status": session.payment_status,
+                "paid": session.payment_status == 'paid',
                 "amount": float(payment.amount),
                 "course": payment.course.title if payment.course else None
             })
@@ -253,75 +208,3 @@ class PaymentStatusAPIView(APIView):
                 {"error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
-
-class SubscriptionViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet для управления подписками
-    """
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        return Subscription.objects.filter(user=self.request.user)
-
-    def get_serializer_class(self):
-        if self.action == 'create':
-            return SubscriptionCreateSerializer
-        return SubscriptionSerializer
-
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
-
-    @swagger_auto_schema(
-        operation_description="Управление подпиской на курс",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'course_id': openapi.Schema(type=openapi.TYPE_INTEGER, description='ID курса')
-            }
-        ),
-        responses={
-            200: openapi.Schema(
-                type=openapi.TYPE_OBJECT,
-                properties={
-                    'message': openapi.Schema(type=openapi.TYPE_STRING)
-                }
-            )
-        }
-    )
-    @action(detail=False, methods=['post'])
-    def toggle(self, request):
-        """
-        Включение/выключение подписки на курс
-        """
-        user = request.user
-        course_id = request.data.get('course_id')
-
-        if not course_id:
-            return Response(
-                {"error": "course_id обязателен"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        course = get_object_or_404(Course, id=course_id)
-        subscription = Subscription.objects.filter(user=user, course=course).first()
-
-        if subscription:
-            subscription.delete()
-            message = 'Подписка удалена'
-        else:
-            Subscription.objects.create(user=user, course=course)
-            message = 'Подписка добавлена'
-
-        return Response({"message": message})
-
-
-class UserPaymentHistoryAPIView(generics.ListAPIView):
-    """
-    История платежей текущего пользователя
-    """
-    permission_classes = [IsAuthenticated]
-    serializer_class = PaymentHistorySerializer
-
-    def get_queryset(self):
-        return Payment.objects.filter(user=self.request.user).select_related('course', 'lesson')

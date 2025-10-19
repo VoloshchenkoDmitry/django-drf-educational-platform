@@ -1,27 +1,18 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import path
 from .views import (
     PaymentListAPIView,
     PaymentCreateAPIView,
     PaymentSuccessAPIView,
     PaymentCancelAPIView,
-    PaymentStatusAPIView,
-    SubscriptionViewSet,
-    UserPaymentHistoryAPIView
+    PaymentStatusAPIView
 )
 
-router = DefaultRouter()
-router.register(r'subscriptions', SubscriptionViewSet, basename='subscription')
+app_name = 'payments'
 
 urlpatterns = [
-    # Payments
     path('', PaymentListAPIView.as_view(), name='payment-list'),
     path('create/', PaymentCreateAPIView.as_view(), name='payment-create'),
     path('success/', PaymentSuccessAPIView.as_view(), name='payment-success'),
     path('cancel/', PaymentCancelAPIView.as_view(), name='payment-cancel'),
     path('status/', PaymentStatusAPIView.as_view(), name='payment-status'),
-    path('history/', UserPaymentHistoryAPIView.as_view(), name='payment-history'),
-
-    # Subscriptions
-    path('', include(router.urls)),
 ]

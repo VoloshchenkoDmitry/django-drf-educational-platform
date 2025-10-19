@@ -50,7 +50,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
     path('api/lessons/', include('materials.urls')),
-    path('api/payments/', include('payments.urls')),  # Подключаем URLs payments
+    path('api/payments/', include('payments.urls')),  # Все платежные endpoints здесь
 
     # JWT endpoints
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),

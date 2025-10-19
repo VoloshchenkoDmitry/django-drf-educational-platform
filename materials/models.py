@@ -55,3 +55,61 @@ class Lesson(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class Subscription(models.Model):
+    """
+    Модель подписки пользователя на курс
+    """
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='subscriptions',
+        verbose_name='Пользователь'
+    )
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='subscriptions',
+        verbose_name='Курс'
+    )
+    subscribed_at = models.DateTimeField(auto_now_add=True, verbose_name='Дата подписки')
+
+    class Meta:
+        verbose_name = 'Подписка'
+        verbose_name_plural = 'Подписки'
+        unique_together = ['user', 'course']  # Одна подписка на курс для пользователя
+
+    def __str__(self):
+        return f"{self.user.email} подписан на {self.course.title}"
+
+
+class CourseUpdate(models.Model):
+    """
+    Модель для отслеживания обновлений курсов
+    """
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='updates',
+        verbose_name='Курс'
+    )
+    updated_at = models.DateTimeField(auto_now_add=True, verbose_name='Время обновления')
+    update_type = models.CharField(
+        max_length=50,
+        choices=[
+            ('course_updated', 'Курс обновлен'),
+            ('lesson_added', 'Добавлен урок'),
+            ('lesson_updated', 'Урок обновлен'),
+        ],
+        verbose_name='Тип обновления'
+    )
+    description = models.TextField(blank=True, null=True, verbose_name='Описание обновления')
+
+    class Meta:
+        verbose_name = 'Обновление курса'
+        verbose_name_plural = 'Обновления курсов'
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return f"Обновление {self.course.title} - {self.updated_at}"

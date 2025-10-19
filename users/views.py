@@ -1,7 +1,9 @@
-from rest_framework import viewsets, status
+from rest_framework import viewsets, generics, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import User
@@ -12,6 +14,8 @@ from .serializers import (
     PublicUserSerializer
 )
 from .permissions import IsModerator, IsProfileOwnerOrReadOnly
+from payments.models import Payment  # Импортируем из payments
+from payments.serializers import PaymentSerializer  # Импортируем из payments
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -62,3 +66,13 @@ class UserViewSet(viewsets.ModelViewSet):
                 'access': str(refresh.access_token),
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PaymentListAPIView(generics.ListAPIView):
+    queryset = Payment.objects.all()
+    serializer_class = PaymentSerializer
+    permission_classes = [IsAuthenticated, IsModerator]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['course', 'lesson', 'payment_method']
+    ordering_fields = ['payment_date']
+    ordering = ['-payment_date']
