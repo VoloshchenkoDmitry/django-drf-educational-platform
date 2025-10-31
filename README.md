@@ -1,16 +1,16 @@
-# Система управления обучением (LMS)
+# Learning Management System (LMS)
 
-Система управления обучением на базе REST Framework Django с Celery, Redis и PostgreSQL.
+Система управления обучением на основе Django REST Framework с Celery, Redis и PostgreSQL.
 
 ## Возможности
 
-- Аутентификация пользователей с помощью JWT
+- Аутентификация пользователей с JWT
 - Управление курсами и уроками
-- Интеграция с оплатой через Stripe
-- Уведомления по электронной почте
+- Интеграция платежей через Stripe
+- Email уведомления
 - Система подписок
 - Фоновые задачи с Celery
-- Документация API с помощью Swagger
+- Документация API с Swagger
 
 ## Быстрый старт с Docker Compose
 
@@ -19,9 +19,9 @@
 - Docker
 - Docker Compose
 
-### Установка
+### Установка и запуск
 
 1. **Клонируйте репозиторий**
-```bash
-git clone <repository-url>
-cd lms-project
+   ```bash
+   git clone <URL-репозитория>
+   cd lms-project
