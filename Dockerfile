@@ -7,7 +7,6 @@ RUN apt-get update && apt-get install -y \
     gcc \
     python3-dev \
     libpq-dev \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Копирование requirements и установка зависимостей
@@ -17,8 +16,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Копирование проекта
 COPY . .
 
+# Создание статических файлов
+RUN python manage.py collectstatic --noinput
+
 # Открытие порта
 EXPOSE 8000
 
 # Команда запуска
-CMD ["sh", "-c", "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"]
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
